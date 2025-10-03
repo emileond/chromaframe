@@ -15,6 +15,7 @@ export default function TabLayout() {
     const [processing, setProcessing] = useState(false);
 
     const tint = Colors[colorScheme ?? 'light'].tint;
+    const tabIconSelected = Colors[colorScheme ?? 'light'].tabIconSelected;
     const bg = useMemo(() => (colorScheme === 'dark' ? '#111' : '#fff'), [colorScheme]);
     const fg = useMemo(() => (colorScheme === 'dark' ? '#fff' : '#111'), [colorScheme]);
     const border = useMemo(() => (colorScheme === 'dark' ? '#222' : '#e5e5e5'), [colorScheme]);
@@ -80,7 +81,7 @@ export default function TabLayout() {
         <>
             <Tabs
                 screenOptions={{
-                    tabBarActiveTintColor: tint,
+                    tabBarActiveTintColor: tabIconSelected,
                     headerShown: false,
                     tabBarButton: HapticTab,
                 }}>
@@ -91,20 +92,13 @@ export default function TabLayout() {
                         tabBarIcon: ({color}) => <IconSymbol size={28} name="house.fill" color={color}/>,
                     }}
                 />
-
-                {/* Center Plus button */}
                 <Tabs.Screen
                     name="new"
                     options={{
-                        title: 'New',
-                        tabBarIcon: ({color}) => <IconSymbol size={36} name="plus" color={color}/>,
-                        tabBarButton: (props) => (
-                            <Pressable
-                                accessibilityRole="button"
-                                onPress={() => setSheetOpen(true)}
-                                style={[props.style, styles.centerBtn]}
-                            >
-                                <IconSymbol size={32} name="plus" color={tint}/>
+                        tabBarLabel: () => null,
+                        tabBarButton: () => (
+                            <Pressable style={styles.centerButton} onPress={() => setSheetOpen(true)}>
+                                <IconSymbol size={32} name="plus" color="#FFF"/>
                             </Pressable>
                         ),
                     }}
@@ -117,6 +111,7 @@ export default function TabLayout() {
                     }}
                 />
             </Tabs>
+
 
             {/* Minimal cross-platform ActionSheet-like modal (styled with current theme) */}
             <Modal transparent visible={sheetOpen} animationType="fade" onRequestClose={() => setSheetOpen(false)}>
@@ -145,14 +140,22 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-    centerBtn: {
-        marginTop: -10,
-        height: 48,
-        width: 64,
-        borderRadius: 32,
-        borderWidth: StyleSheet.hairlineWidth,
-        alignItems: 'center',
+    centerButton: {
+        // Position the button
         justifyContent: 'center',
+        alignSelf: 'center',
+        alignItems: 'center',
+        // Style the button
+        width: 48,
+        height: 48,
+        borderRadius: 30,
+        backgroundColor: Colors.light.tint,
+        // Add a shadow
+        shadowColor: '#000',
+        shadowOffset: {width: 0, height: 2},
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        elevation: 5,
     },
     backdrop: {
         position: 'absolute',
@@ -191,7 +194,6 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     separator: {
-        height: StyleSheet.hairlineWidth,
         width: '100%',
     },
     hint: {

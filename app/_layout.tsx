@@ -1,33 +1,33 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import {DarkTheme, DefaultTheme, ThemeProvider} from '@react-navigation/native';
+import {Stack} from 'expo-router';
+import {StatusBar} from 'expo-status-bar';
 import 'react-native-reanimated';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import {GestureHandlerRootView} from 'react-native-gesture-handler';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import {useColorScheme} from '@/hooks/use-color-scheme';
 
-import { GluestackUIProvider } from '@/components/ui/gluestack-ui-provider';
+import {GluestackUIProvider} from '@/components/ui/gluestack-ui-provider';
 import '@/global.css';
 
 export const unstable_settings = {
-  anchor: '(tabs)',
+    anchor: '(tabs)',
 };
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+    const colorScheme = useColorScheme();
 
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <GluestackUIProvider mode="dark">
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-            <Stack.Screen name="editor" options={{ title: 'Editor' }} />
-          </Stack>
-          <StatusBar style="auto" />
-        </ThemeProvider>
-      </GluestackUIProvider>
-    </GestureHandlerRootView>
-  );
+    return (
+        <GestureHandlerRootView style={{flex: 1}}>
+            <GluestackUIProvider mode="light">
+                <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                    <Stack>
+                        <Stack.Screen name="(tabs)" options={{headerShown: false}}/>
+                        <Stack.Screen name="modal" options={{presentation: 'modal', title: 'Modal'}}/>
+                        <Stack.Screen name="editor" options={{title: 'Editor'}}/>
+                    </Stack>
+                    <StatusBar style="auto"/>
+                </ThemeProvider>
+            </GluestackUIProvider>
+        </GestureHandlerRootView>
+    );
 }
