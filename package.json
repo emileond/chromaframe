@@ -17,6 +17,7 @@
     "@gluestack-ui/utils": "^3.0.7",
     "@legendapp/motion": "^2.4.0",
     "@radix-ui/react-dialog": "^1.1.15",
+    "@react-native-vector-icons/material-icons": "^12.3.0",
     "@react-navigation/bottom-tabs": "^7.4.0",
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",

@@ -2,7 +2,7 @@ import React, {useMemo, useState} from 'react';
 import {Dimensions, StyleSheet, View, Pressable, Text, ActivityIndicator, Platform} from 'react-native';
 import {useLocalSearchParams, Stack} from 'expo-router';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
-import { runOnJS } from 'react-native-reanimated';
+import {runOnJS} from 'react-native-reanimated';
 import {
     Canvas,
     Image as SkiaImage,
@@ -12,6 +12,7 @@ import {
     Group,
     type SkPath,
 } from '@shopify/react-native-skia';
+import {MaterialIcons} from '@react-native-vector-icons/material-icons'
 
 const {width: SCREEN_W} = Dimensions.get('window');
 const CANVAS_H = SCREEN_W * 1.5;
@@ -31,10 +32,12 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
     const [strokes, setStrokes] = useState<Stroke[]>([]);
     const [activePath, setActivePath] = useState<SkPath | null>(null);
 
+    const [activeTool, setActiveTool] = useState('grid');
+
+
     const [brushWidth, setBrushWidth] = useState(6);
     const [brushColor, setBrushColor] = useState('#ff3b30');
 
-    const [showGrid, setShowGrid] = useState(true);
 
     // JS-side handlers to avoid calling React state setters from gesture worklets
     const startStroke = (x: number, y: number) => {
@@ -52,7 +55,7 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
     const endStroke = () => {
         setActivePath((prev) => {
             if (prev) {
-                setStrokes((s) => [...s, { path: prev, color: brushColor, width: brushWidth }]);
+                setStrokes((s) => [...s, {path: prev, color: brushColor, width: brushWidth}]);
             }
             return null;
         });
@@ -94,7 +97,7 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                 <GestureDetector gesture={pan}>
                     <Canvas style={{width: SCREEN_W, height: CANVAS_H}}>
                         {image && <SkiaImage image={image} x={0} y={0} width={SCREEN_W} height={CANVAS_H} fit="cover"/>}
-                        {showGrid && (
+                        {activeTool === 'grid' && (
                             <Group>
                                 {gridLines.map((l, idx) => (
                                     <SkiaPath
@@ -117,10 +120,48 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                 </GestureDetector>
             </View>
 
+            <View>
+
+                {
+                    activeTool === 'brush' && (
+
+                        <View style={styles.brushRow}>
+                            {['#ff3b30', '#34c759', '#0a84ff', '#ffd60a', '#ffffff'].map((c) => (
+                                <Pressable
+                                    key={c}
+                                    onPress={() => setBrushColor(c)}
+                                    style={[styles.colorSwatch, {backgroundColor: c}, brushColor === c && styles.colorSwatchActive]}
+                                />
+                            ))}
+                            {[4, 6, 10, 14].map((w) => (
+                                <Pressable key={w} onPress={() => setBrushWidth(w)} style={styles.widthBtn}>
+                                    <View style={{height: w, width: 28, backgroundColor: '#fff', borderRadius: 12}}/>
+                                </Pressable>
+                            ))}
+                        </View>
+                    )
+                }
+
+
+                <View style={styles.toolbar}>
+                    <Pressable style={styles.toolBtn}
+                               onPress={() => setActiveTool((v) => v === 'grid' ? 'none' : 'grid')}>
+                        <MaterialIcons name="grid-on" size={24} color={activeTool === 'grid' ? '#ffd60a' : '#fff'}/>
+                    </Pressable>
+                    <Pressable style={styles.toolBtn} onPress={() =>
+                        setActiveTool((v) => v === 'brush' ? 'none' : 'brush')}>
+
+
+                        <MaterialIcons name="brush" size={24} color={activeTool === 'brush' ? '#ffd60a' : '#fff'}/>
+                    </Pressable>
+                    <Pressable style={styles.toolBtn}
+                               onPress={() => setActiveTool((v) => v === 'picker' ? 'none' : 'picker')}>
+                        <MaterialIcons name="colorize" size={24} color={activeTool === 'picker' ? '#ffd60a' : '#fff'}/>
+                    </Pressable>
+                </View>
+            </View>
             <View style={styles.toolbar}>
-                <Pressable style={styles.toolBtn} onPress={() => setShowGrid((v) => !v)}>
-                    <Text style={styles.toolText}>{showGrid ? 'Hide Grid' : 'Show Grid'}</Text>
-                </Pressable>
+
                 <Pressable style={styles.toolBtn} onPress={undo} disabled={strokes.length === 0}>
                     <Text style={[styles.toolText, strokes.length === 0 && {opacity: 0.5}]}>Undo</Text>
                 </Pressable>
@@ -129,20 +170,6 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                 </Pressable>
             </View>
 
-            <View style={styles.brushRow}>
-                {['#ff3b30', '#34c759', '#0a84ff', '#ffd60a', '#ffffff'].map((c) => (
-                    <Pressable
-                        key={c}
-                        onPress={() => setBrushColor(c)}
-                        style={[styles.colorSwatch, {backgroundColor: c}, brushColor === c && styles.colorSwatchActive]}
-                    />
-                ))}
-                {[4, 6, 10, 14].map((w) => (
-                    <Pressable key={w} onPress={() => setBrushWidth(w)} style={styles.widthBtn}>
-                        <View style={{height: w, width: 28, backgroundColor: '#fff', borderRadius: 12}}/>
-                    </Pressable>
-                ))}
-            </View>
         </View>
     );
 };
@@ -185,7 +212,7 @@ const styles = StyleSheet.create({
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: 'rgba(255,255,255,0.2)',
     },
-    toolBtn: {paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.08)'},
+    toolBtn: {paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.1)'},
     toolText: {color: '#fff', fontWeight: '600'},
     brushRow: {
         flexDirection: 'row',
