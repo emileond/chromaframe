@@ -1,8 +1,11 @@
-import React, {useMemo, useState} from 'react';
-import {Dimensions, StyleSheet, View, Pressable, Text, ActivityIndicator, Platform} from 'react-native';
+import React, {useMemo, useState, useRef, useEffect} from 'react';
+import {Dimensions, StyleSheet, View, Pressable, Text, ActivityIndicator, Platform, Image, Alert} from 'react-native';
+import Svg, {Line} from 'react-native-svg';
 import {useLocalSearchParams, Stack} from 'expo-router';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
+import {CropZoom, useImageResolution, type CropZoomRefType} from 'react-native-zoom-toolkit';
 import {runOnJS} from 'react-native-reanimated';
+import {manipulateAsync, FlipType, SaveFormat} from 'expo-image-manipulator';
 import {
     Canvas,
     Image as SkiaImage,
@@ -26,17 +29,157 @@ interface Stroke {
 // 1. Create a new component for the editor UI and logic.
 // This component will only be rendered when Skia is ready.
 const Editor = ({imageUri}: { imageUri?: string }) => {
+    // Keep the original uri to support full reset
+    const originalUriRef = useRef<string>(imageUri ?? '');
+    // Working image uri that reflects applied crops
+    const [currentUri, setCurrentUri] = useState<string>(imageUri ?? '');
+
     // All Skia-related hooks are now safely called here.
-    const image = useImage(imageUri ?? '');
+    const image = useImage(currentUri);
+
+    // CropZoom setup for grid tool
+    const cropRef = useRef<CropZoomRefType>(null);
+    const cropSize = {width: SCREEN_W, height: CANVAS_H};
+
+    // Robust resolution resolver with fallback + cache (handles file:// URIs)
+    const resolutionCacheRef = useRef<Record<string, { width: number; height: number }>>({});
+    const {resolution: hookResolution} = useImageResolution({uri: currentUri});
+    const [fallbackResolution, setFallbackResolution] = useState<{
+        width: number;
+        height: number
+    } | undefined>(undefined);
+
+    useEffect(() => {
+        // Cache successful hook resolutions
+        if (hookResolution && currentUri) {
+            resolutionCacheRef.current[currentUri] = hookResolution;
+            setFallbackResolution(undefined);
+        }
+    }, [hookResolution, currentUri]);
+
+    useEffect(() => {
+        // If hook didn't resolve (common with some local URIs), try Image.getSize
+        if (!hookResolution && currentUri) {
+            if (resolutionCacheRef.current[currentUri]) {
+                setFallbackResolution(resolutionCacheRef.current[currentUri]);
+                return;
+            }
+            Image.getSize(
+                currentUri,
+                (width, height) => {
+                    const res = {width, height};
+                    resolutionCacheRef.current[currentUri] = res;
+                    setFallbackResolution(res);
+                },
+                () => {
+                    // Keep undefined; CropZoom won't render until we have a resolution
+                    setFallbackResolution(undefined);
+                }
+            );
+        }
+    }, [hookResolution, currentUri]);
+
+    const resolvedResolution = hookResolution || fallbackResolution || resolutionCacheRef.current[currentUri];
+
+    // Overlay that draws the 3x3 grid on top of the CropZoom content, using SVG for crisp lines
+    const GridOverlay = () => {
+        const w = cropSize.width;
+        const h = cropSize.height;
+        const stroke = 'rgba(255,255,255,0.5)';
+        return (
+            <Svg
+                pointerEvents="none"
+                width={w}
+                height={h}
+                style={{position: 'absolute', top: 0, left: 0}}
+            >
+                {/* Vertical thirds */}
+                <Line x1={w / 3} y1={0} x2={w / 3} y2={h} stroke={stroke} strokeWidth={1}/>
+                <Line x1={(2 * w) / 3} y1={0} x2={(2 * w) / 3} y2={h} stroke={stroke} strokeWidth={1}/>
+                {/* Horizontal thirds */}
+                <Line x1={0} y1={h / 3} x2={w} y2={h / 3} stroke={stroke} strokeWidth={1}/>
+                <Line x1={0} y1={(2 * h) / 3} x2={w} y2={(2 * h) / 3} stroke={stroke} strokeWidth={1}/>
+            </Svg>
+        );
+    };
 
     const [strokes, setStrokes] = useState<Stroke[]>([]);
     const [activePath, setActivePath] = useState<SkPath | null>(null);
 
     const [activeTool, setActiveTool] = useState('grid');
-
+    const [applyingCrop, setApplyingCrop] = useState(false);
 
     const [brushWidth, setBrushWidth] = useState(6);
     const [brushColor, setBrushColor] = useState('#ff3b30');
+
+    // Apply crop and switch tool
+    const applyCropAndSwitch = async (nextTool: string) => {
+        if (!cropRef.current) {
+            setActiveTool(nextTool);
+            return;
+        }
+        try {
+            setApplyingCrop(true);
+            // Use fixed width equal to canvas width to control output size
+            const resultCtx = cropRef.current.crop(SCREEN_W);
+            const actions: any[] = [];
+            if (resultCtx.resize) {
+                actions.push({
+                    resize: {
+                        width: Math.round(resultCtx.resize.width),
+                        height: Math.round(resultCtx.resize.height)
+                    }
+                });
+            }
+            const angle = Math.round(resultCtx.context.rotationAngle);
+            const normAngle = ((angle % 360) + 360) % 360;
+            if (normAngle !== 0) {
+                actions.push({rotate: normAngle});
+            }
+            if (resultCtx.context.flipHorizontal) {
+                actions.push({flip: FlipType.Horizontal});
+            }
+            if (resultCtx.context.flipVertical) {
+                actions.push({flip: FlipType.Vertical});
+            }
+            // Crop must be last
+            actions.push({
+                crop: {
+                    originX: Math.round(resultCtx.crop.originX),
+                    originY: Math.round(resultCtx.crop.originY),
+                    width: Math.round(resultCtx.crop.width),
+                    height: Math.round(resultCtx.crop.height),
+                }
+            });
+
+            const manipulated = await manipulateAsync(
+                currentUri,
+                actions,
+                {compress: 1, format: SaveFormat.PNG}
+            );
+
+            setCurrentUri(manipulated.uri);
+            // Clear existing strokes after crop as requested
+            setStrokes([]);
+            setActivePath(null);
+            setActiveTool(nextTool);
+        } catch (e) {
+            console.warn('Failed to apply crop', e);
+            // Even if it fails, switch tool to avoid UX dead-ends
+            setActiveTool(nextTool);
+        } finally {
+            setApplyingCrop(false);
+        }
+    };
+
+    const onSelectTool = (tool: string) => {
+        if (activeTool === 'grid' && tool !== 'grid') {
+            // Leaving grid: auto-apply crop
+            applyCropAndSwitch(tool);
+        } else {
+            setActiveTool(tool);
+        }
+    };
 
 
     // JS-side handlers to avoid calling React state setters from gesture worklets
@@ -78,6 +221,28 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
         setActivePath(null);
     };
 
+    const resetEditor = () => {
+        // Restore original image and clear drawings
+        setCurrentUri(originalUriRef.current);
+        setStrokes([]);
+        setActivePath(null);
+        // If grid tool is mounted, reset its transform state
+        cropRef.current?.reset?.();
+    };
+
+    const confirmReset = () => {
+        const canReset = strokes.length > 0 || currentUri !== originalUriRef.current;
+        if (!canReset) return; // nothing to reset
+        Alert.alert(
+            'Reset editor?',
+            'This will discard all drawings and revert the image to its original state.',
+            [
+                {text: 'Cancel', style: 'cancel'},
+                {text: 'Reset', style: 'destructive', onPress: resetEditor},
+            ]
+        );
+    };
+
     const gridLines = useMemo(() => {
         const lines: { from: [number, number]; to: [number, number] }[] = [];
         const thirdW = SCREEN_W / 3;
@@ -94,30 +259,41 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
     return (
         <View style={styles.container}>
             <View style={styles.canvasWrap}>
-                <GestureDetector gesture={pan}>
-                    <Canvas style={{width: SCREEN_W, height: CANVAS_H}}>
-                        {image && <SkiaImage image={image} x={0} y={0} width={SCREEN_W} height={CANVAS_H} fit="cover"/>}
-                        {activeTool === 'grid' && (
-                            <Group>
-                                {gridLines.map((l, idx) => (
-                                    <SkiaPath
-                                        key={idx}
-                                        path={Skia.Path.Make().moveTo(l.from[0], l.from[1]).lineTo(l.to[0], l.to[1])}
-                                        color="rgba(255,255,255,0.4)"
-                                        style="stroke"
-                                        strokeWidth={1}
-                                    />
-                                ))}
-                            </Group>
-                        )}
-                        {strokes.map((s, idx) => (
-                            <SkiaPath key={idx} path={s.path} color={s.color} style="stroke" strokeWidth={s.width}/>
-                        ))}
-                        {activePath && (
-                            <SkiaPath path={activePath} color={brushColor} style="stroke" strokeWidth={brushWidth}/>
-                        )}
-                    </Canvas>
-                </GestureDetector>
+                {activeTool === 'grid' ? (
+                    resolvedResolution === undefined ? (
+                        <View
+                            style={{width: SCREEN_W, height: CANVAS_H, alignItems: 'center', justifyContent: 'center'}}>
+                            <ActivityIndicator size="large" color="#fff"/>
+                        </View>
+                    ) : (
+                        <CropZoom
+                            key={`cz-${currentUri}`}
+                            ref={cropRef}
+                            cropSize={cropSize}
+                            resolution={resolvedResolution}
+                            OverlayComponent={GridOverlay}
+                        >
+                            <Image
+                                source={{uri: currentUri}}
+                                style={{width: '100%', height: '100%'}}
+                                resizeMode="cover"
+                            />
+                        </CropZoom>
+                    )
+                ) : (
+                    <GestureDetector gesture={pan}>
+                        <Canvas style={{width: SCREEN_W, height: CANVAS_H}}>
+                            {image && <SkiaImage key={`sk-${currentUri}`} image={image} x={0} y={0} width={SCREEN_W}
+                                                 height={CANVAS_H} fit="cover"/>}
+                            {strokes.map((s, idx) => (
+                                <SkiaPath key={idx} path={s.path} color={s.color} style="stroke" strokeWidth={s.width}/>
+                            ))}
+                            {activePath && (
+                                <SkiaPath path={activePath} color={brushColor} style="stroke" strokeWidth={brushWidth}/>
+                            )}
+                        </Canvas>
+                    </GestureDetector>
+                )}
             </View>
 
             <View>
@@ -145,17 +321,15 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
 
                 <View style={styles.toolbar}>
                     <Pressable style={styles.toolBtn}
-                               onPress={() => setActiveTool((v) => v === 'grid' ? 'none' : 'grid')}>
+                               onPress={() => onSelectTool(activeTool === 'grid' ? 'none' : 'grid')}>
                         <MaterialIcons name="grid-on" size={24} color={activeTool === 'grid' ? '#ffd60a' : '#fff'}/>
                     </Pressable>
-                    <Pressable style={styles.toolBtn} onPress={() =>
-                        setActiveTool((v) => v === 'brush' ? 'none' : 'brush')}>
-
-
+                    <Pressable style={styles.toolBtn}
+                               onPress={() => onSelectTool(activeTool === 'brush' ? 'none' : 'brush')}>
                         <MaterialIcons name="brush" size={24} color={activeTool === 'brush' ? '#ffd60a' : '#fff'}/>
                     </Pressable>
                     <Pressable style={styles.toolBtn}
-                               onPress={() => setActiveTool((v) => v === 'picker' ? 'none' : 'picker')}>
+                               onPress={() => onSelectTool(activeTool === 'picker' ? 'none' : 'picker')}>
                         <MaterialIcons name="colorize" size={24} color={activeTool === 'picker' ? '#ffd60a' : '#fff'}/>
                     </Pressable>
                 </View>
@@ -167,6 +341,14 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                 </Pressable>
                 <Pressable style={styles.toolBtn} onPress={clear} disabled={strokes.length === 0}>
                     <Text style={[styles.toolText, strokes.length === 0 && {opacity: 0.5}]}>Clear</Text>
+                </Pressable>
+                <Pressable
+                    style={styles.toolBtn}
+                    onPress={confirmReset}
+                    disabled={strokes.length === 0 && currentUri === originalUriRef.current}
+                >
+                    <Text
+                        style={[styles.toolText, (strokes.length === 0 && currentUri === originalUriRef.current) && {opacity: 0.5}]}>Reset</Text>
                 </Pressable>
             </View>
 
@@ -204,7 +386,7 @@ export default function EditorScreen() {
 
 const styles = StyleSheet.create({
     container: {flex: 1, backgroundColor: '#000', justifyContent: 'center'},
-    canvasWrap: {flex: 1, alignItems: 'center', justifyContent: 'center'},
+    canvasWrap: {flex: 1, alignItems: 'center', justifyContent: 'center', position: 'relative'},
     toolbar: {
         flexDirection: 'row',
         justifyContent: 'space-around',
