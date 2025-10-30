@@ -81,25 +81,20 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
 
     const resolvedResolution = hookResolution || fallbackResolution || resolutionCacheRef.current[currentUri];
 
-    // Overlay that draws the 3x3 grid on top of the CropZoom content, using SVG for crisp lines
-    const GridOverlay = () => {
-        const w = cropSize.width;
-        const h = cropSize.height;
-        const stroke = 'rgba(255,255,255,0.5)';
+    // Thirds grid to render ABOVE CropZoom, sized by the same fixed container
+    const ThirdsGrid = () => {
+        const stroke = 'rgba(255,255,255,0.6)';
         return (
-            <Svg
-                pointerEvents="none"
-                width={w}
-                height={h}
-                style={{position: 'absolute', top: 0, left: 0}}
-            >
-                {/* Vertical thirds */}
-                <Line x1={w / 3} y1={0} x2={w / 3} y2={h} stroke={stroke} strokeWidth={1}/>
-                <Line x1={(2 * w) / 3} y1={0} x2={(2 * w) / 3} y2={h} stroke={stroke} strokeWidth={1}/>
-                {/* Horizontal thirds */}
-                <Line x1={0} y1={h / 3} x2={w} y2={h / 3} stroke={stroke} strokeWidth={1}/>
-                <Line x1={0} y1={(2 * h) / 3} x2={w} y2={(2 * h) / 3} stroke={stroke} strokeWidth={1}/>
-            </Svg>
+            <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+                <Svg width="100%" height="100%">
+                    {/* Vertical thirds */}
+                    <Line x1="33.333%" y1="0%" x2="33.333%" y2="100%" stroke={stroke} strokeWidth={1} />
+                    <Line x1="66.666%" y1="0%" x2="66.666%" y2="100%" stroke={stroke} strokeWidth={1} />
+                    {/* Horizontal thirds */}
+                    <Line x1="0%" y1="33.333%" x2="100%" y2="33.333%" stroke={stroke} strokeWidth={1} />
+                    <Line x1="0%" y1="66.666%" x2="100%" y2="66.666%" stroke={stroke} strokeWidth={1} />
+                </Svg>
+            </View>
         );
     };
 
@@ -243,18 +238,6 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
         );
     };
 
-    const gridLines = useMemo(() => {
-        const lines: { from: [number, number]; to: [number, number] }[] = [];
-        const thirdW = SCREEN_W / 3;
-        const thirdH = CANVAS_H / 3;
-        // Vertical lines
-        lines.push({from: [thirdW, 0], to: [thirdW, CANVAS_H]});
-        lines.push({from: [thirdW * 2, 0], to: [thirdW * 2, CANVAS_H]});
-        // Horizontal lines
-        lines.push({from: [0, thirdH], to: [SCREEN_W, thirdH]});
-        lines.push({from: [0, thirdH * 2], to: [SCREEN_W, thirdH * 2]});
-        return lines;
-    }, []);
 
     return (
         <View style={styles.container}>
@@ -266,19 +249,21 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                             <ActivityIndicator size="large" color="#fff"/>
                         </View>
                     ) : (
-                        <CropZoom
-                            key={`cz-${currentUri}`}
-                            ref={cropRef}
-                            cropSize={cropSize}
-                            resolution={resolvedResolution}
-                            OverlayComponent={GridOverlay}
-                        >
-                            <Image
-                                source={{uri: currentUri}}
-                                style={{width: '100%', height: '100%'}}
-                                resizeMode="cover"
-                            />
-                        </CropZoom>
+                        <View style={{ width: SCREEN_W, height: CANVAS_H }}>
+                            <CropZoom
+                                key={`cz-${currentUri}`}
+                                ref={cropRef}
+                                cropSize={cropSize}
+                                resolution={resolvedResolution}
+                            >
+                                <Image
+                                    source={{uri: currentUri}}
+                                    style={{width: '100%', height: '100%'}}
+                                    resizeMode="cover"
+                                />
+                            </CropZoom>
+                            <ThirdsGrid />
+                        </View>
                     )
                 ) : (
                     <GestureDetector gesture={pan}>
