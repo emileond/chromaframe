@@ -1,5 +1,16 @@
-import React, {useMemo, useState, useRef, useEffect} from 'react';
-import {Dimensions, StyleSheet, View, Pressable, Text, ActivityIndicator, Platform, Image, Alert} from 'react-native';
+import React, {useState, useRef, useEffect} from 'react';
+import {
+    Dimensions,
+    StyleSheet,
+    View,
+    Pressable,
+    Text,
+    ActivityIndicator,
+    Platform,
+    Image,
+    Alert,
+    ScrollView
+} from 'react-native';
 import Svg, {Line} from 'react-native-svg';
 import {useLocalSearchParams, Stack} from 'expo-router';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
@@ -13,9 +24,12 @@ import {
     Path as SkiaPath,
     Skia,
     Group,
+    useCanvasRef,
     type SkPath,
 } from '@shopify/react-native-skia';
 import {MaterialIcons} from '@react-native-vector-icons/material-icons'
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 const {width: SCREEN_W} = Dimensions.get('window');
 const CANVAS_H = SCREEN_W * 1.5;
@@ -36,6 +50,9 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
 
     // All Skia-related hooks are now safely called here.
     const image = useImage(currentUri);
+
+    // Ref to capture the canvas as an image for sharing
+    const canvasRef = useCanvasRef();
 
     // CropZoom setup for grid tool
     const cropRef = useRef<CropZoomRefType>(null);
@@ -88,11 +105,11 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
             <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
                 <Svg width="100%" height="100%">
                     {/* Vertical thirds */}
-                    <Line x1="33.333%" y1="0%" x2="33.333%" y2="100%" stroke={stroke} strokeWidth={1} />
-                    <Line x1="66.666%" y1="0%" x2="66.666%" y2="100%" stroke={stroke} strokeWidth={1} />
+                    <Line x1="33.333%" y1="0%" x2="33.333%" y2="100%" stroke={stroke} strokeWidth={1}/>
+                    <Line x1="66.666%" y1="0%" x2="66.666%" y2="100%" stroke={stroke} strokeWidth={1}/>
                     {/* Horizontal thirds */}
-                    <Line x1="0%" y1="33.333%" x2="100%" y2="33.333%" stroke={stroke} strokeWidth={1} />
-                    <Line x1="0%" y1="66.666%" x2="100%" y2="66.666%" stroke={stroke} strokeWidth={1} />
+                    <Line x1="0%" y1="33.333%" x2="100%" y2="33.333%" stroke={stroke} strokeWidth={1}/>
+                    <Line x1="0%" y1="66.666%" x2="100%" y2="66.666%" stroke={stroke} strokeWidth={1}/>
                 </Svg>
             </View>
         );
@@ -105,7 +122,21 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
     const [applyingCrop, setApplyingCrop] = useState(false);
 
     const [brushWidth, setBrushWidth] = useState(6);
-    const [brushColor, setBrushColor] = useState('#ff3b30');
+    const [brushColor, setBrushColor] = useState('#aaa');
+    const [exporting, setExporting] = useState(false);
+    // Brush UI state
+    const COLORS = ['#fff', '#e2e2e2', '#c6c6c6', '#aaa', '#8f8f8f', '#757575', '#5b5b5b', '#434343', '#2d2d2d', '#181818', '#000'];
+    const WIDTHS = [2, 4, 6, 8, 10, 12, 14, 18, 22, 26];
+    const [showColorOptions, setShowColorOptions] = useState(false);
+    const [showWidthOptions, setShowWidthOptions] = useState(false);
+
+    // Collapse brush option panels when leaving brush tool
+    useEffect(() => {
+        if (activeTool !== 'brush') {
+            setShowColorOptions(false);
+            setShowWidthOptions(false);
+        }
+    }, [activeTool]);
 
     // Apply crop and switch tool
     const applyCropAndSwitch = async (nextTool: string) => {
@@ -216,6 +247,70 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
         setActivePath(null);
     };
 
+    const exportAndShare = async () => {
+        try {
+            if (!canvasRef.current) {
+                Alert.alert('Not ready', 'Canvas is not ready yet.');
+                return;
+            }
+            setExporting(true);
+            // Ensure the canvas has rendered latest frame
+            await new Promise((r) => requestAnimationFrame(() => r(null)));
+            const imageSnapshot = canvasRef.current.makeImageSnapshot();
+            if (!imageSnapshot) {
+                Alert.alert('Export failed', 'Could not capture the canvas.');
+                return;
+            }
+            // Use no-arg encodeToBase64 which defaults to PNG on all supported Skia versions
+            const base64 = imageSnapshot.encodeToBase64
+                ? imageSnapshot.encodeToBase64()
+                : undefined;
+            if (!base64) {
+                Alert.alert('Export failed', 'Encoding snapshot failed.');
+                return;
+            }
+            const fileUri = `${FileSystem.cacheDirectory}chromaframe-${Date.now()}.png`;
+            await FileSystem.writeAsStringAsync(fileUri, base64, {encoding: FileSystem.EncodingType.Base64});
+            const available = await Sharing.isAvailableAsync();
+            if (!available) {
+                Alert.alert('Sharing not available', 'Sharing is not available on this device. The image was saved to a temporary file.', [
+                    {text: 'OK'}
+                ]);
+                return;
+            }
+            await Sharing.shareAsync(fileUri, {
+                mimeType: 'image/png',
+                dialogTitle: 'Share image',
+            });
+        } catch (e) {
+            console.warn('Share failed', e);
+            Alert.alert('Share failed', 'Something went wrong while preparing the image.');
+        } finally {
+            setExporting(false);
+        }
+    };
+
+    const onPressShare = async () => {
+        if (activeTool === 'grid') {
+            Alert.alert(
+                'Apply crop?',
+                'To share, we need to apply your current crop first.',
+                [
+                    {text: 'Cancel', style: 'cancel'},
+                    {
+                        text: 'Apply & Share', onPress: async () => {
+                            await applyCropAndSwitch('share');
+                            // Wait a tick for canvas to update
+                            setTimeout(() => exportAndShare(), 50);
+                        }
+                    }
+                ]
+            );
+            return;
+        }
+        await exportAndShare();
+    };
+
     const resetEditor = () => {
         // Restore original image and clear drawings
         setCurrentUri(originalUriRef.current);
@@ -223,19 +318,6 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
         setActivePath(null);
         // If grid tool is mounted, reset its transform state
         cropRef.current?.reset?.();
-    };
-
-    const confirmReset = () => {
-        const canReset = strokes.length > 0 || currentUri !== originalUriRef.current;
-        if (!canReset) return; // nothing to reset
-        Alert.alert(
-            'Reset editor?',
-            'This will discard all drawings and revert the image to its original state.',
-            [
-                {text: 'Cancel', style: 'cancel'},
-                {text: 'Reset', style: 'destructive', onPress: resetEditor},
-            ]
-        );
     };
 
 
@@ -249,7 +331,7 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                             <ActivityIndicator size="large" color="#fff"/>
                         </View>
                     ) : (
-                        <View style={{ width: SCREEN_W, height: CANVAS_H }}>
+                        <View style={{width: SCREEN_W, height: CANVAS_H}}>
                             <CropZoom
                                 key={`cz-${currentUri}`}
                                 ref={cropRef}
@@ -262,12 +344,12 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                                     resizeMode="cover"
                                 />
                             </CropZoom>
-                            <ThirdsGrid />
+                            <ThirdsGrid/>
                         </View>
                     )
                 ) : (
                     <GestureDetector gesture={pan}>
-                        <Canvas style={{width: SCREEN_W, height: CANVAS_H}}>
+                        <Canvas ref={canvasRef} style={{width: SCREEN_W, height: CANVAS_H}}>
                             {image && <SkiaImage key={`sk-${currentUri}`} image={image} x={0} y={0} width={SCREEN_W}
                                                  height={CANVAS_H} fit="cover"/>}
                             {strokes.map((s, idx) => (
@@ -287,18 +369,74 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                     activeTool === 'brush' && (
 
                         <View style={styles.brushRow}>
-                            {['#ff3b30', '#34c759', '#0a84ff', '#ffd60a', '#ffffff'].map((c) => (
-                                <Pressable
-                                    key={c}
-                                    onPress={() => setBrushColor(c)}
-                                    style={[styles.colorSwatch, {backgroundColor: c}, brushColor === c && styles.colorSwatchActive]}
-                                />
-                            ))}
-                            {[4, 6, 10, 14].map((w) => (
-                                <Pressable key={w} onPress={() => setBrushWidth(w)} style={styles.widthBtn}>
-                                    <View style={{height: w, width: 28, backgroundColor: '#fff', borderRadius: 12}}/>
-                                </Pressable>
-                            ))}
+                            {/* Color selector: collapsed to active color, expand on tap */}
+                            <View style={styles.rowSection}>
+                                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                    <Pressable onPress={() => setShowColorOptions(v => !v)}>
+                                        <View
+                                            style={[styles.colorSwatch, {backgroundColor: brushColor}, styles.colorSwatchActive]}/>
+                                    </Pressable>
+                                    {showColorOptions && (
+                                        <ScrollView
+                                            horizontal
+                                            showsHorizontalScrollIndicator={false}
+                                            style={{flex: 1}}
+                                            contentContainerStyle={{alignItems: 'center'}}
+                                        >
+                                            {COLORS.map((c) => (
+                                                <Pressable
+                                                    key={c}
+                                                    onPress={() => {
+                                                        setBrushColor(c);
+                                                        setShowColorOptions(false);
+                                                    }}
+                                                    style={[styles.colorSwatch, {backgroundColor: c}, brushColor === c && styles.colorSwatchActive]}
+                                                />
+                                            ))}
+                                        </ScrollView>
+                                    )}
+                                </View>
+                            </View>
+
+                            {/* Width selector: gesture adjust and optional list on tap */}
+                            <View style={styles.rowSection}>
+                                <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end'}}>
+                                    {showWidthOptions && (
+                                        <ScrollView
+                                            horizontal
+                                            showsHorizontalScrollIndicator={false}
+                                            style={{flex: 1}}
+                                            contentContainerStyle={{alignItems: 'center', justifyContent: 'flex-end'}}
+                                        >
+                                            {WIDTHS.map((w) => (
+                                                <Pressable key={w} onPress={() => {
+                                                    setBrushWidth(w);
+                                                    setShowWidthOptions(false);
+                                                }} style={styles.widthBtn}>
+                                                    <View style={{
+                                                        height: w,
+                                                        width: 28,
+                                                        backgroundColor: '#fff',
+                                                        borderRadius: 12
+                                                    }}/>
+                                                </Pressable>
+                                            ))}
+                                        </ScrollView>
+                                    )}
+                                    <Pressable onPress={() => setShowWidthOptions(v => !v)}>
+                                        <View style={styles.widthPreviewWrap}>
+                                            <View style={[styles.widthPreviewBar, {height: brushWidth}]}/>
+                                            <Text style={styles.widthPreviewText}>{brushWidth}</Text>
+                                        </View>
+                                    </Pressable>
+                                </View>
+                            </View>
+                            <Pressable style={styles.toolBtn} onPress={undo} disabled={strokes.length === 0}>
+                                <MaterialIcons name="undo" size={24} color="#fff"/>
+                            </Pressable>
+                            <Pressable style={styles.toolBtn} onPress={clear} disabled={strokes.length === 0}>
+                                <MaterialIcons name="layers-clear" size={24} color="#fff"/>
+                            </Pressable>
                         </View>
                     )
                 }
@@ -317,24 +455,23 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                                onPress={() => onSelectTool(activeTool === 'picker' ? 'none' : 'picker')}>
                         <MaterialIcons name="colorize" size={24} color={activeTool === 'picker' ? '#ffd60a' : '#fff'}/>
                     </Pressable>
+                    <Pressable style={styles.toolBtn}
+                               onPress={() => onSelectTool(activeTool === 'note' ? 'none' : 'note')}>
+                        <MaterialIcons name="note-add" size={24}
+                                       color={activeTool === 'note' ? '#ffd60a' : '#fff'}/>
+                    </Pressable>
+                    <Pressable style={styles.toolBtn}
+                               onPress={onPressShare}
+                               disabled={exporting || applyingCrop}>
+                        {exporting ? (
+                            <ActivityIndicator color="#fff"/>
+                        ) : (
+                            <MaterialIcons name="ios-share" size={24} color="#fff"/>
+                        )}
+                    </Pressable>
                 </View>
             </View>
             <View style={styles.toolbar}>
-
-                <Pressable style={styles.toolBtn} onPress={undo} disabled={strokes.length === 0}>
-                    <Text style={[styles.toolText, strokes.length === 0 && {opacity: 0.5}]}>Undo</Text>
-                </Pressable>
-                <Pressable style={styles.toolBtn} onPress={clear} disabled={strokes.length === 0}>
-                    <Text style={[styles.toolText, strokes.length === 0 && {opacity: 0.5}]}>Clear</Text>
-                </Pressable>
-                <Pressable
-                    style={styles.toolBtn}
-                    onPress={confirmReset}
-                    disabled={strokes.length === 0 && currentUri === originalUriRef.current}
-                >
-                    <Text
-                        style={[styles.toolText, (strokes.length === 0 && currentUri === originalUriRef.current) && {opacity: 0.5}]}>Reset</Text>
-                </Pressable>
             </View>
 
         </View>
@@ -388,7 +525,43 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-evenly',
     },
-    colorSwatch: {height: 28, width: 28, borderRadius: 14, borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)'},
+    rowSection: {flex: 1, minWidth: 0},
+    scrollRow: {marginTop: 8},
+    colorSwatch: {
+        height: 28,
+        width: 28,
+        borderRadius: 14,
+        borderWidth: 2,
+        borderColor: 'rgba(255,255,255,0.6)',
+        marginRight: 8
+    },
     colorSwatchActive: {borderColor: '#fff', borderWidth: 3},
-    widthBtn: {paddingHorizontal: 8, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 8},
+    widthBtn: {
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 8,
+        marginRight: 8
+    },
+    widthPreviewWrap: {alignItems: 'center', justifyContent: 'center', paddingVertical: 4, paddingHorizontal: 8},
+    widthPreviewBar: {width: 28, backgroundColor: '#fff', borderRadius: 12},
+    widthPreviewText: {color: '#fff', fontSize: 12, opacity: 0.8, marginTop: 4, textAlign: 'center'},
+    adjustTrack: {
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        width: 140,
+        marginTop: 6,
+        overflow: 'hidden'
+    },
+    adjustFill: {position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.35)'},
+    adjustThumb: {
+        position: 'absolute',
+        top: 0,
+        width: 16,
+        height: 24,
+        borderRadius: 8,
+        backgroundColor: '#fff',
+        marginLeft: -8
+    },
 });
