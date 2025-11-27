@@ -21,7 +21,7 @@ export default function RootLayout() {
             <GluestackUIProvider mode="light">
                 <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
                     <Stack>
-                        <Stack.Screen name="(tabs)" options={{headerShown: false}}/>
+                        <Stack.Screen name="(tabs)" options={{headerShown: false, title: 'Home'}}/>
                         <Stack.Screen name="modal" options={{presentation: 'modal', title: 'Modal'}}/>
                         <Stack.Screen name="editor" options={{title: 'Editor'}}/>
                     </Stack>

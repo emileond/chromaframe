@@ -1,15 +1,20 @@
-import React, {useState, useRef, useEffect} from 'react';
+import React, {useState, useRef, useEffect, useImperativeHandle} from 'react';
 import {
     Dimensions,
     StyleSheet,
     View,
     Pressable,
     Text,
+    TextInput,
     ActivityIndicator,
     Platform,
     Image,
     Alert,
-    ScrollView
+    ScrollView,
+    Keyboard,
+    KeyboardAvoidingView,
+    TouchableWithoutFeedback,
+    Modal
 } from 'react-native';
 import Svg, {Line} from 'react-native-svg';
 import {useLocalSearchParams, Stack} from 'expo-router';
@@ -30,6 +35,7 @@ import {
 import {MaterialIcons} from '@react-native-vector-icons/material-icons'
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import {ensurePreviewDir, saveSession, getSession, updateSession, type EditorState} from '@/lib/sessions';
 
 const {width: SCREEN_W} = Dimensions.get('window');
 const CANVAS_H = SCREEN_W * 1.5;
@@ -42,7 +48,7 @@ interface Stroke {
 
 // 1. Create a new component for the editor UI and logic.
 // This component will only be rendered when Skia is ready.
-const Editor = ({imageUri}: { imageUri?: string }) => {
+const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; initialState?: EditorState }, ref: React.Ref<{ openSaveDialog: () => void; saveWithoutPrompt: (sessionId: number) => Promise<void> }>) => {
     // Keep the original uri to support full reset
     const originalUriRef = useRef<string>(imageUri ?? '');
     // Working image uri that reflects applied crops
@@ -50,6 +56,32 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
 
     // All Skia-related hooks are now safely called here.
     const image = useImage(currentUri);
+
+    // Hydrate from an initial saved state when provided
+    useEffect(() => {
+        if (initialState) {
+            try {
+                originalUriRef.current = initialState.originalUri || initialState.currentUri;
+                setCurrentUri(initialState.currentUri || initialState.originalUri);
+                setNoteText(initialState.noteText ?? '');
+                const restored: Stroke[] = [];
+                if (Array.isArray(initialState.strokes)) {
+                    for (const s of initialState.strokes) {
+                        const p = (Skia as any).Path?.MakeFromSVGString
+                            ? (Skia as any).Path.MakeFromSVGString(s.pathSvg)
+                            : null;
+                        if (p) restored.push({ path: p, color: s.color, width: s.width });
+                    }
+                }
+                setStrokes(restored);
+                setActivePath(null);
+                setActiveTool('none');
+            } catch (e) {
+                console.warn('Failed to hydrate editor state', e);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialState?.currentUri]);
 
     // Ref to capture the canvas as an image for sharing
     const canvasRef = useCanvasRef();
@@ -98,6 +130,52 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
 
     const resolvedResolution = hookResolution || fallbackResolution || resolutionCacheRef.current[currentUri];
 
+    useImperativeHandle(ref, () => ({
+        openSaveDialog: () => setSaveVisible(true),
+        saveWithoutPrompt: async (sessionId: number) => {
+            try {
+                setSaving(true);
+                // If currently in grid, apply crop to bake state
+                if (activeTool === 'grid') {
+                    await applyCropAndSwitch('none');
+                    await new Promise((r)=>requestAnimationFrame(()=>r(null)));
+                }
+                // Ensure canvas has latest frame
+                await new Promise((r)=>requestAnimationFrame(()=>r(null)));
+                let previewUri: string | undefined = undefined;
+                if (canvasRef.current) {
+                    const snapshot = canvasRef.current.makeImageSnapshot();
+                    const base64 = snapshot?.encodeToBase64 ? snapshot.encodeToBase64() : undefined;
+                    if (base64) {
+                        const dir = await ensurePreviewDir();
+                        const out = `${dir}preview-${Date.now()}.png`;
+                        await FileSystem.writeAsStringAsync(out, base64, {encoding: FileSystem.EncodingType.Base64});
+                        previewUri = out;
+                    }
+                }
+                const serializedStrokes = strokes.map((s)=>({
+                    pathSvg: (s.path as any)?.toSVGString ? (s.path as any).toSVGString() : '',
+                    color: s.color,
+                    width: s.width,
+                }));
+                const state: EditorState = {
+                    originalUri: originalUriRef.current,
+                    currentUri,
+                    noteText,
+                    strokes: serializedStrokes,
+                    canvas: { width: SCREEN_W, height: CANVAS_H },
+                };
+                await updateSession(sessionId, state, previewUri);
+                Alert.alert('Updated', 'Your session has been updated.');
+            } catch (e) {
+                console.warn('Update session failed', e);
+                Alert.alert('Save failed', 'Could not update your session.');
+            } finally {
+                setSaving(false);
+            }
+        },
+    }));
+
     // Thirds grid to render ABOVE CropZoom, sized by the same fixed container
     const ThirdsGrid = () => {
         const stroke = 'rgba(255,255,255,0.6)';
@@ -124,6 +202,12 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
     const [brushWidth, setBrushWidth] = useState(6);
     const [brushColor, setBrushColor] = useState('#aaa');
     const [exporting, setExporting] = useState(false);
+    // Save modal state
+    const [saveVisible, setSaveVisible] = useState(false);
+    const [saveName, setSaveName] = useState('');
+    const [saving, setSaving] = useState(false);
+    // Notes state
+    const [noteText, setNoteText] = useState('');
     // Brush UI state
     const COLORS = ['#fff', '#e2e2e2', '#c6c6c6', '#aaa', '#8f8f8f', '#757575', '#5b5b5b', '#434343', '#2d2d2d', '#181818', '#000'];
     const WIDTHS = [2, 4, 6, 8, 10, 12, 14, 18, 22, 26];
@@ -203,6 +287,10 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
             // Leaving grid: auto-apply crop
             applyCropAndSwitch(tool);
         } else {
+            // If leaving notes, make sure to hide the keyboard
+            if (activeTool === 'note' && tool !== 'note') {
+                Keyboard.dismiss();
+            }
             setActiveTool(tool);
         }
     };
@@ -324,7 +412,28 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
     return (
         <View style={styles.container}>
             <View style={styles.canvasWrap}>
-                {activeTool === 'grid' ? (
+                {activeTool === 'note' ? (
+                    <KeyboardAvoidingView
+                        style={{width: SCREEN_W, height: CANVAS_H, padding: 16}}
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    >
+                        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                            <View style={{flex: 1}}>
+                                <Text style={{color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 8}}>Notes</Text>
+                                <TextInput
+                                    style={{flex: 1, color: '#fff', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, textAlignVertical: 'top'}}
+                                    multiline
+                                    placeholder="Type your notes here..."
+                                    placeholderTextColor="rgba(255,255,255,0.6)"
+                                    value={noteText}
+                                    onChangeText={setNoteText}
+                                    blurOnSubmit
+                                    returnKeyType="done"
+                                />
+                            </View>
+                        </TouchableWithoutFeedback>
+                    </KeyboardAvoidingView>
+                ) : activeTool === 'grid' ? (
                     resolvedResolution === undefined ? (
                         <View
                             style={{width: SCREEN_W, height: CANVAS_H, alignItems: 'center', justifyContent: 'center'}}>
@@ -442,6 +551,7 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                 }
 
 
+
                 <View style={styles.toolbar}>
                     <Pressable style={styles.toolBtn}
                                onPress={() => onSelectTool(activeTool === 'grid' ? 'none' : 'grid')}>
@@ -462,7 +572,7 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
                     </Pressable>
                     <Pressable style={styles.toolBtn}
                                onPress={onPressShare}
-                               disabled={exporting || applyingCrop}>
+                               disabled={exporting || applyingCrop || activeTool === 'note'}>
                         {exporting ? (
                             <ActivityIndicator color="#fff"/>
                         ) : (
@@ -474,13 +584,109 @@ const Editor = ({imageUri}: { imageUri?: string }) => {
             <View style={styles.toolbar}>
             </View>
 
+            {/* Save Session Modal */}
+            <Modal visible={saveVisible} transparent animationType="fade" onRequestClose={() => setSaveVisible(false)}>
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                    <View style={{flex:1, backgroundColor:'rgba(0,0,0,0.6)', justifyContent:'center', alignItems:'center', padding:24}}>
+                        <View style={{width:'100%', backgroundColor:'#111', borderRadius:12, padding:16}}>
+                            <Text style={{color:'#fff', fontSize:18, fontWeight:'700', marginBottom:12}}>Save session</Text>
+                            <TextInput
+                                value={saveName}
+                                onChangeText={setSaveName}
+                                placeholder="Name your session"
+                                placeholderTextColor="rgba(255,255,255,0.5)"
+                                style={{color:'#fff', backgroundColor:'rgba(255,255,255,0.06)', borderRadius:8, padding:12}}
+                            />
+                            <View style={{flexDirection:'row', justifyContent:'flex-end', gap:12, marginTop:16}}>
+                                <Pressable onPress={() => setSaveVisible(false)} style={{paddingHorizontal:12, paddingVertical:8}}>
+                                    <Text style={{color:'#fff'}}>Cancel</Text>
+                                </Pressable>
+                                <Pressable disabled={saving || !saveName.trim()} onPress={async () => {
+                                    try {
+                                        const name = saveName.trim();
+                                        if (!name) return;
+                                        setSaving(true);
+                                        // If currently in grid, apply crop to bake state
+                                        if (activeTool === 'grid') {
+                                            await applyCropAndSwitch('none');
+                                            // wait next frame
+                                            await new Promise((r)=>requestAnimationFrame(()=>r(null)));
+                                        }
+                                        // Ensure canvas has latest frame
+                                        await new Promise((r)=>requestAnimationFrame(()=>r(null)));
+                                        let previewUri: string | null = null;
+                                        if (canvasRef.current) {
+                                            const snapshot = canvasRef.current.makeImageSnapshot();
+                                            const base64 = snapshot?.encodeToBase64 ? snapshot.encodeToBase64() : undefined;
+                                            if (base64) {
+                                                const dir = await ensurePreviewDir();
+                                                const out = `${dir}preview-${Date.now()}.png`;
+                                                await FileSystem.writeAsStringAsync(out, base64, {encoding: FileSystem.EncodingType.Base64});
+                                                previewUri = out;
+                                            }
+                                        }
+                                        // Serialize strokes to SVG strings
+                                        const serializedStrokes = strokes.map((s)=>({
+                                            pathSvg: (s.path as any)?.toSVGString ? (s.path as any).toSVGString() : '',
+                                            color: s.color,
+                                            width: s.width,
+                                        }));
+                                        const state: EditorState = {
+                                            originalUri: originalUriRef.current,
+                                            currentUri,
+                                            noteText,
+                                            strokes: serializedStrokes,
+                                            canvas: { width: SCREEN_W, height: CANVAS_H },
+                                        };
+                                        await saveSession(name, state, previewUri);
+                                        setSaveVisible(false);
+                                        setSaveName('');
+                                        Alert.alert('Saved', 'Your session has been saved.');
+                                    } catch (e) {
+                                        console.warn('Save session failed', e);
+                                        Alert.alert('Save failed', 'Could not save your session.');
+                                    } finally {
+                                        setSaving(false);
+                                    }
+                                }} style={{paddingHorizontal:12, paddingVertical:8, backgroundColor: saving || !saveName.trim() ? 'rgba(255,255,255,0.2)' : '#fff', borderRadius:8}}>
+                                    <Text style={{color: saving || !saveName.trim() ? 'rgba(255,255,255,0.7)' : '#111', fontWeight:'700'}}>{saving ? 'Saving…' : 'Save'}</Text>
+                                </Pressable>
+                            </View>
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
+
         </View>
     );
-};
+});
 
 // 2. The main screen component now only handles loading.
 export default function EditorScreen() {
-    const params = useLocalSearchParams<{ imageUri?: string }>();
+    const editorRef = useRef<{ openSaveDialog: () => void; saveWithoutPrompt: (sessionId: number) => Promise<void> }>(null);
+    const params = useLocalSearchParams<{ imageUri?: string; sessionId?: string }>();
+    const [initialState, setInitialState] = useState<EditorState | undefined>(undefined);
+    const [loadingSession, setLoadingSession] = useState(false);
+
+    useEffect(() => {
+        (async () => {
+            if (params?.sessionId) {
+                try {
+                    setLoadingSession(true);
+                    const row = await getSession(Number(params.sessionId));
+                    if (row?.state_json) {
+                        const parsed: EditorState = JSON.parse(row.state_json);
+                        setInitialState(parsed);
+                    }
+                } catch (e) {
+                    console.warn('Failed to load session', e);
+                    Alert.alert('Load failed', 'Could not open the saved session.');
+                } finally {
+                    setLoadingSession(false);
+                }
+            }
+        })();
+    }, [params?.sessionId]);
 
     // Ensure Skia and Skia.Path are available and avoid rendering on web.
     const isSkiaReady = Platform.OS !== 'web' && !!Skia && !!(Skia as any).Path;
@@ -500,8 +706,30 @@ export default function EditorScreen() {
 
     return (
         <>
-            <Stack.Screen options={{headerShown: true, title: 'Editor'}}/>
-            <Editor imageUri={params?.imageUri as string | undefined}/>
+            <Stack.Screen options={{headerShown: true, title: 'Editor', headerRight: () => (
+                <Pressable onPress={() => {
+                    if (params?.sessionId) {
+                        const idNum = Number(params.sessionId);
+                        if (!Number.isNaN(idNum)) {
+                            editorRef.current?.saveWithoutPrompt(idNum);
+                        } else {
+                            editorRef.current?.openSaveDialog();
+                        }
+                    } else {
+                        editorRef.current?.openSaveDialog();
+                    }
+                }} style={{paddingHorizontal:12}}>
+                    <MaterialIcons name="save" size={24} color={Platform.OS === 'ios' ? '#007aff' : '#fff'} />
+                </Pressable>
+            )}}/>
+            {loadingSession && params?.sessionId ? (
+                <View style={[styles.canvasWrap, {padding: 24}]}> 
+                    <ActivityIndicator size="large" color="#fff" />
+                    <Text style={{color:'#fff', opacity:0.8, marginTop:12}}>Loading session…</Text>
+                </View>
+            ) : (
+                <Editor ref={editorRef} imageUri={params?.imageUri as string | undefined} initialState={initialState} />
+            )}
         </>
     );
 }

@@ -52,7 +52,8 @@
           "photosPermission": "The app needs access to your photos to let you select an image for editing.",
           "cameraPermission": "The app needs access to your camera to let you take a photo for editing."
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,
