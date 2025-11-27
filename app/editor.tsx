@@ -48,7 +48,10 @@ interface Stroke {
 
 // 1. Create a new component for the editor UI and logic.
 // This component will only be rendered when Skia is ready.
-const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; initialState?: EditorState }, ref: React.Ref<{ openSaveDialog: () => void; saveWithoutPrompt: (sessionId: number) => Promise<void> }>) => {
+const Editor = React.forwardRef(({imageUri, initialState}: {
+    imageUri?: string;
+    initialState?: EditorState
+}, ref: React.Ref<{ openSaveDialog: () => void; saveWithoutPrompt: (sessionId: number) => Promise<void> }>) => {
     // Keep the original uri to support full reset
     const originalUriRef = useRef<string>(imageUri ?? '');
     // Working image uri that reflects applied crops
@@ -70,7 +73,7 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                         const p = (Skia as any).Path?.MakeFromSVGString
                             ? (Skia as any).Path.MakeFromSVGString(s.pathSvg)
                             : null;
-                        if (p) restored.push({ path: p, color: s.color, width: s.width });
+                        if (p) restored.push({path: p, color: s.color, width: s.width});
                     }
                 }
                 setStrokes(restored);
@@ -138,10 +141,10 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                 // If currently in grid, apply crop to bake state
                 if (activeTool === 'grid') {
                     await applyCropAndSwitch('none');
-                    await new Promise((r)=>requestAnimationFrame(()=>r(null)));
+                    await new Promise((r) => requestAnimationFrame(() => r(null)));
                 }
                 // Ensure canvas has latest frame
-                await new Promise((r)=>requestAnimationFrame(()=>r(null)));
+                await new Promise((r) => requestAnimationFrame(() => r(null)));
                 let previewUri: string | undefined = undefined;
                 if (canvasRef.current) {
                     const snapshot = canvasRef.current.makeImageSnapshot();
@@ -153,7 +156,7 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                         previewUri = out;
                     }
                 }
-                const serializedStrokes = strokes.map((s)=>({
+                const serializedStrokes = strokes.map((s) => ({
                     pathSvg: (s.path as any)?.toSVGString ? (s.path as any).toSVGString() : '',
                     color: s.color,
                     width: s.width,
@@ -163,7 +166,7 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                     currentUri,
                     noteText,
                     strokes: serializedStrokes,
-                    canvas: { width: SCREEN_W, height: CANVAS_H },
+                    canvas: {width: SCREEN_W, height: CANVAS_H},
                 };
                 await updateSession(sessionId, state, previewUri);
                 Alert.alert('Updated', 'Your session has been updated.');
@@ -419,9 +422,21 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                     >
                         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
                             <View style={{flex: 1}}>
-                                <Text style={{color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 8}}>Notes</Text>
+                                <Text style={{
+                                    color: '#fff',
+                                    fontSize: 16,
+                                    fontWeight: '600',
+                                    marginBottom: 8
+                                }}>Notes</Text>
                                 <TextInput
-                                    style={{flex: 1, color: '#fff', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: 12, textAlignVertical: 'top'}}
+                                    style={{
+                                        flex: 1,
+                                        color: '#fff',
+                                        backgroundColor: 'rgba(255,255,255,0.06)',
+                                        borderRadius: 12,
+                                        padding: 12,
+                                        textAlignVertical: 'top'
+                                    }}
                                     multiline
                                     placeholder="Type your notes here..."
                                     placeholderTextColor="rgba(255,255,255,0.6)"
@@ -481,10 +496,13 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                             {/* Color selector: collapsed to active color, expand on tap */}
                             <View style={styles.rowSection}>
                                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                                    <Pressable onPress={() => setShowColorOptions(v => !v)}>
-                                        <View
-                                            style={[styles.colorSwatch, {backgroundColor: brushColor}, styles.colorSwatchActive]}/>
-                                    </Pressable>
+                                    {!showWidthOptions && (
+
+                                        <Pressable onPress={() => setShowColorOptions(v => !v)}>
+                                            <View
+                                                style={[styles.colorSwatch, {backgroundColor: brushColor}, styles.colorSwatchActive]}/>
+                                        </Pressable>
+                                    )}
                                     {showColorOptions && (
                                         <ScrollView
                                             horizontal
@@ -504,12 +522,15 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                                             ))}
                                         </ScrollView>
                                     )}
-                                </View>
-                            </View>
+                                    {!showColorOptions && (
 
-                            {/* Width selector: gesture adjust and optional list on tap */}
-                            <View style={styles.rowSection}>
-                                <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end'}}>
+                                        <Pressable onPress={() => setShowWidthOptions(v => !v)}>
+                                            <View style={styles.widthPreviewWrap}>
+                                                <View style={[styles.widthPreviewBar, {height: brushWidth}]}/>
+                                                <Text style={styles.widthPreviewText}>{brushWidth}</Text>
+                                            </View>
+                                        </Pressable>
+                                    )}
                                     {showWidthOptions && (
                                         <ScrollView
                                             horizontal
@@ -518,38 +539,46 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                                             contentContainerStyle={{alignItems: 'center', justifyContent: 'flex-end'}}
                                         >
                                             {WIDTHS.map((w) => (
-                                                <Pressable key={w} onPress={() => {
-                                                    setBrushWidth(w);
-                                                    setShowWidthOptions(false);
-                                                }} style={styles.widthBtn}>
-                                                    <View style={{
-                                                        height: w,
-                                                        width: 28,
-                                                        backgroundColor: '#fff',
-                                                        borderRadius: 12
-                                                    }}/>
+                                                <Pressable
+                                                    key={w}
+                                                    onPress={() => {
+                                                        setBrushWidth(w);
+                                                        setShowWidthOptions(false);
+                                                    }}
+                                                    style={[styles.widthBtn, brushWidth === w && styles.widthBtnActive]}
+                                                >
+                                                    <View style={{alignItems: 'center'}}>
+                                                        <View
+                                                            style={[
+                                                                { height: w, width: 28, backgroundColor: '#fff', borderRadius: 12 },
+                                                                brushWidth === w ? { backgroundColor: '#ffd60a' } : null
+                                                            ]}
+                                                        />
+                                                        <Text style={styles.widthLabel}>{w}</Text>
+                                                    </View>
                                                 </Pressable>
                                             ))}
                                         </ScrollView>
                                     )}
-                                    <Pressable onPress={() => setShowWidthOptions(v => !v)}>
-                                        <View style={styles.widthPreviewWrap}>
-                                            <View style={[styles.widthPreviewBar, {height: brushWidth}]}/>
-                                            <Text style={styles.widthPreviewText}>{brushWidth}</Text>
-                                        </View>
-                                    </Pressable>
+
                                 </View>
+
                             </View>
-                            <Pressable style={styles.toolBtn} onPress={undo} disabled={strokes.length === 0}>
-                                <MaterialIcons name="undo" size={24} color="#fff"/>
-                            </Pressable>
-                            <Pressable style={styles.toolBtn} onPress={clear} disabled={strokes.length === 0}>
-                                <MaterialIcons name="layers-clear" size={24} color="#fff"/>
-                            </Pressable>
+                            {showColorOptions || showWidthOptions ? null : (
+
+                                <>
+                                    <Pressable style={styles.toolBrushBtn} onPress={undo} disabled={strokes.length === 0}>
+                                        <MaterialIcons name="undo" size={24} color="#fff"/>
+                                    </Pressable>
+                                    <Pressable style={styles.toolBrushBtn} onPress={clear} disabled={strokes.length === 0}>
+                                        <MaterialIcons name="layers-clear" size={24} color="#fff"/>
+                                    </Pressable>
+                                </>
+                            )
+                            }
                         </View>
                     )
                 }
-
 
 
                 <View style={styles.toolbar}>
@@ -587,19 +616,32 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
             {/* Save Session Modal */}
             <Modal visible={saveVisible} transparent animationType="fade" onRequestClose={() => setSaveVisible(false)}>
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                    <View style={{flex:1, backgroundColor:'rgba(0,0,0,0.6)', justifyContent:'center', alignItems:'center', padding:24}}>
-                        <View style={{width:'100%', backgroundColor:'#111', borderRadius:12, padding:16}}>
-                            <Text style={{color:'#fff', fontSize:18, fontWeight:'700', marginBottom:12}}>Save session</Text>
+                    <View style={{
+                        flex: 1,
+                        backgroundColor: 'rgba(0,0,0,0.6)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        padding: 24
+                    }}>
+                        <View style={{width: '100%', backgroundColor: '#111', borderRadius: 12, padding: 16}}>
+                            <Text style={{color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 12}}>Save
+                                session</Text>
                             <TextInput
                                 value={saveName}
                                 onChangeText={setSaveName}
                                 placeholder="Name your session"
                                 placeholderTextColor="rgba(255,255,255,0.5)"
-                                style={{color:'#fff', backgroundColor:'rgba(255,255,255,0.06)', borderRadius:8, padding:12}}
+                                style={{
+                                    color: '#fff',
+                                    backgroundColor: 'rgba(255,255,255,0.06)',
+                                    borderRadius: 8,
+                                    padding: 12
+                                }}
                             />
-                            <View style={{flexDirection:'row', justifyContent:'flex-end', gap:12, marginTop:16}}>
-                                <Pressable onPress={() => setSaveVisible(false)} style={{paddingHorizontal:12, paddingVertical:8}}>
-                                    <Text style={{color:'#fff'}}>Cancel</Text>
+                            <View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 16}}>
+                                <Pressable onPress={() => setSaveVisible(false)}
+                                           style={{paddingHorizontal: 12, paddingVertical: 8}}>
+                                    <Text style={{color: '#fff'}}>Cancel</Text>
                                 </Pressable>
                                 <Pressable disabled={saving || !saveName.trim()} onPress={async () => {
                                     try {
@@ -610,10 +652,10 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                                         if (activeTool === 'grid') {
                                             await applyCropAndSwitch('none');
                                             // wait next frame
-                                            await new Promise((r)=>requestAnimationFrame(()=>r(null)));
+                                            await new Promise((r) => requestAnimationFrame(() => r(null)));
                                         }
                                         // Ensure canvas has latest frame
-                                        await new Promise((r)=>requestAnimationFrame(()=>r(null)));
+                                        await new Promise((r) => requestAnimationFrame(() => r(null)));
                                         let previewUri: string | null = null;
                                         if (canvasRef.current) {
                                             const snapshot = canvasRef.current.makeImageSnapshot();
@@ -626,7 +668,7 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                                             }
                                         }
                                         // Serialize strokes to SVG strings
-                                        const serializedStrokes = strokes.map((s)=>({
+                                        const serializedStrokes = strokes.map((s) => ({
                                             pathSvg: (s.path as any)?.toSVGString ? (s.path as any).toSVGString() : '',
                                             color: s.color,
                                             width: s.width,
@@ -636,7 +678,7 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                                             currentUri,
                                             noteText,
                                             strokes: serializedStrokes,
-                                            canvas: { width: SCREEN_W, height: CANVAS_H },
+                                            canvas: {width: SCREEN_W, height: CANVAS_H},
                                         };
                                         await saveSession(name, state, previewUri);
                                         setSaveVisible(false);
@@ -648,8 +690,16 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
                                     } finally {
                                         setSaving(false);
                                     }
-                                }} style={{paddingHorizontal:12, paddingVertical:8, backgroundColor: saving || !saveName.trim() ? 'rgba(255,255,255,0.2)' : '#fff', borderRadius:8}}>
-                                    <Text style={{color: saving || !saveName.trim() ? 'rgba(255,255,255,0.7)' : '#111', fontWeight:'700'}}>{saving ? 'Saving…' : 'Save'}</Text>
+                                }} style={{
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 8,
+                                    backgroundColor: saving || !saveName.trim() ? 'rgba(255,255,255,0.2)' : '#fff',
+                                    borderRadius: 8
+                                }}>
+                                    <Text style={{
+                                        color: saving || !saveName.trim() ? 'rgba(255,255,255,0.7)' : '#111',
+                                        fontWeight: '700'
+                                    }}>{saving ? 'Saving…' : 'Save'}</Text>
                                 </Pressable>
                             </View>
                         </View>
@@ -663,7 +713,10 @@ const Editor = React.forwardRef(({imageUri, initialState}: { imageUri?: string; 
 
 // 2. The main screen component now only handles loading.
 export default function EditorScreen() {
-    const editorRef = useRef<{ openSaveDialog: () => void; saveWithoutPrompt: (sessionId: number) => Promise<void> }>(null);
+    const editorRef = useRef<{
+        openSaveDialog: () => void;
+        saveWithoutPrompt: (sessionId: number) => Promise<void>
+    }>(null);
     const params = useLocalSearchParams<{ imageUri?: string; sessionId?: string }>();
     const [initialState, setInitialState] = useState<EditorState | undefined>(undefined);
     const [loadingSession, setLoadingSession] = useState(false);
@@ -706,29 +759,31 @@ export default function EditorScreen() {
 
     return (
         <>
-            <Stack.Screen options={{headerShown: true, title: 'Editor', headerRight: () => (
-                <Pressable onPress={() => {
-                    if (params?.sessionId) {
-                        const idNum = Number(params.sessionId);
-                        if (!Number.isNaN(idNum)) {
-                            editorRef.current?.saveWithoutPrompt(idNum);
+            <Stack.Screen options={{
+                headerShown: true, title: 'Editor', headerRight: () => (
+                    <Pressable onPress={() => {
+                        if (params?.sessionId) {
+                            const idNum = Number(params.sessionId);
+                            if (!Number.isNaN(idNum)) {
+                                editorRef.current?.saveWithoutPrompt(idNum);
+                            } else {
+                                editorRef.current?.openSaveDialog();
+                            }
                         } else {
                             editorRef.current?.openSaveDialog();
                         }
-                    } else {
-                        editorRef.current?.openSaveDialog();
-                    }
-                }} style={{paddingHorizontal:12}}>
-                    <MaterialIcons name="save" size={24} color={Platform.OS === 'ios' ? '#007aff' : '#fff'} />
-                </Pressable>
-            )}}/>
+                    }} style={{paddingHorizontal: 12}}>
+                        <MaterialIcons name="save" size={24} color={Platform.OS === 'ios' ? '#007aff' : '#fff'}/>
+                    </Pressable>
+                )
+            }}/>
             {loadingSession && params?.sessionId ? (
-                <View style={[styles.canvasWrap, {padding: 24}]}> 
-                    <ActivityIndicator size="large" color="#fff" />
-                    <Text style={{color:'#fff', opacity:0.8, marginTop:12}}>Loading session…</Text>
+                <View style={[styles.canvasWrap, {padding: 24}]}>
+                    <ActivityIndicator size="large" color="#fff"/>
+                    <Text style={{color: '#fff', opacity: 0.8, marginTop: 12}}>Loading session…</Text>
                 </View>
             ) : (
-                <Editor ref={editorRef} imageUri={params?.imageUri as string | undefined} initialState={initialState} />
+                <Editor ref={editorRef} imageUri={params?.imageUri as string | undefined} initialState={initialState}/>
             )}
         </>
     );
@@ -745,6 +800,11 @@ const styles = StyleSheet.create({
         borderTopColor: 'rgba(255,255,255,0.2)',
     },
     toolBtn: {paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.1)'},
+    toolBrushBtn: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8
+    },
     toolText: {color: '#fff', fontWeight: '600'},
     brushRow: {
         flexDirection: 'row',
@@ -771,6 +831,12 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         marginRight: 8
     },
+    widthBtnActive: {
+        borderWidth: 2,
+        borderColor: '#ffd60a',
+        backgroundColor: 'rgba(255,214,10,0.15)'
+    },
+    widthLabel: { color: '#fff', fontSize: 10, opacity: 0.9, marginTop: 4, textAlign: 'center' },
     widthPreviewWrap: {alignItems: 'center', justifyContent: 'center', paddingVertical: 4, paddingHorizontal: 8},
     widthPreviewBar: {width: 28, backgroundColor: '#fff', borderRadius: 12},
     widthPreviewText: {color: '#fff', fontSize: 12, opacity: 0.8, marginTop: 4, textAlign: 'center'},

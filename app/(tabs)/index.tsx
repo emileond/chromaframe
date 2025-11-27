@@ -18,7 +18,7 @@ import {Card} from '@/components/ui/card';
 import {Heading} from '@/components/ui/heading';
 import {Text} from '@/components/ui/text';
 import {ThemedView} from '@/components/themed-view';
-import { EmptyState } from '@/components/empty-state';
+import {EmptyState} from '@/components/empty-state';
 import {listSessions, deleteSession, type SessionRow} from '@/lib/sessions';
 
 const PADDING_H = 16;
@@ -95,20 +95,20 @@ export default function HomeScreen() {
                 s.name,
                 undefined,
                 [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: doDelete },
+                    {text: 'Cancel', style: 'cancel'},
+                    {text: 'Delete', style: 'destructive', onPress: doDelete},
                 ],
-                { cancelable: true }
+                {cancelable: true}
             );
         }
     }, []);
 
-    const renderItem = useCallback(({item}: {item: SessionRow}) => (
+    const renderItem = useCallback(({item}: { item: SessionRow }) => (
         <Pressable
-            onPress={() => router.push({ pathname: '/editor', params: { sessionId: String(item.id) } })}
+            onPress={() => router.push({pathname: '/editor', params: {sessionId: String(item.id)}})}
             onLongPress={() => onLongPressItem(item)}
             accessibilityRole="button"
-            style={{ width: ITEM_W }}
+            style={{width: ITEM_W}}
         >
             <Card size="md" variant="elevated" style={styles.cardBody}>
                 {item.preview_uri ? (
@@ -125,32 +125,32 @@ export default function HomeScreen() {
 
     const keyExtractor = useCallback((it: SessionRow) => String(it.id), []);
 
-    const emptyData = useMemo(() => Array.from({length: 4}).map((_, i) => ({ id: -i - 1 })), []);
+    const emptyData = useMemo(() => Array.from({length: 4}).map((_, i) => ({id: -i - 1})), []);
 
     return (
-            <ThemedView style={{ flex: 1 }}>
-                <Heading size="xl" className="pt-12 pb-6 px-4">
-                    Welcome
-                </Heading>
+        <ThemedView style={{flex: 1}}>
+            <Heading size="xl" className="pt-16 pb-6 px-4">
+                Welcome
+            </Heading>
 
-                <View style={{ flex: 1 }}>
-                    {sessions.length === 0 ? (
-                        <EmptyState />
-                    ) : (
-                        <FlatList
-                            data={sessions}
-                            renderItem={renderItem}
-                            keyExtractor={keyExtractor}
-                            numColumns={2}
-                            columnWrapperStyle={{ gap: GAP, paddingHorizontal: PADDING_H }}
-                            contentContainerStyle={{ paddingBottom: 24, rowGap: GAP }}
-                            onRefresh={refresh}
-                            refreshing={false}
-                        />
-                    )}
-                </View>
-            </ThemedView>
-        );
+            <View style={{flex: 1}}>
+                {sessions.length === 0 ? (
+                    <EmptyState/>
+                ) : (
+                    <FlatList
+                        data={sessions}
+                        renderItem={renderItem}
+                        keyExtractor={keyExtractor}
+                        numColumns={2}
+                        columnWrapperStyle={{gap: GAP, paddingHorizontal: PADDING_H}}
+                        contentContainerStyle={{paddingBottom: 24, rowGap: GAP}}
+                        onRefresh={refresh}
+                        refreshing={false}
+                    />
+                )}
+            </View>
+        </ThemedView>
+    );
 }
 
 const styles = StyleSheet.create({
